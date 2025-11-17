@@ -1,12 +1,11 @@
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4, landscape
-from colorama import Fore, Style, init
+from reportlab.lib.units import inch
 from reportlab.lib import colors
+from colorama import Fore, Style, init
 from datetime import datetime
 import pymysql
-import platform
-import os
 
 init(autoreset=True)
 
@@ -21,13 +20,36 @@ cursor = conn.cursor()
 
 
 # PDF GENERATOR
+
+
 def generate_pdf_report(title, headers, data, filename_prefix):
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{filename_prefix}_{timestamp}.pdf"
 
-    pdf = SimpleDocTemplate(filename, pagesize=landscape(A4))
+    pdf = SimpleDocTemplate(
+        filename,
+        pagesize=landscape(A4),
+        leftMargin=0.5 * inch,
+        rightMargin=0.5 * inch,
+        topMargin=0.75 * inch,
+        bottomMargin=0.75 * inch
+    )
+
     styles = getSampleStyleSheet()
     elements = []
+
+    # School Heading
+    school_style = ParagraphStyle(
+        'SchoolHeading',
+        parent=styles['Heading1'],
+        fontSize=18,
+        textColor=colors.HexColor('#1a237e'),
+        alignment=1,  # Center alignment
+        spaceAfter=10,
+        fontName='Helvetica-Bold'
+    )
+    elements.append(Paragraph("<b>Ananya Vidyalaya CBSE</b>", school_style))
+    elements.append(Spacer(1, 12))
 
     # Title
     elements.append(Paragraph(f"<b>{title}</b>", styles['Title']))
@@ -37,25 +59,81 @@ def generate_pdf_report(title, headers, data, filename_prefix):
     if not data:
         elements.append(Paragraph("No records found.", styles['Normal']))
     else:
-        table_data = [headers] + [list(row) for row in data]
-        table = Table(table_data)
+        # Create a custom paragraph style for table cells
+        cell_style = ParagraphStyle(
+            'CellStyle',
+            parent=styles['Normal'],
+            fontSize=9,
+            leading=11,
+            alignment=1,  # Center alignment
+            wordWrap='CJK'
+        )
+
+        # Convert data to Paragraphs for text wrapping
+        table_data = []
+
+        # Add headers (as regular text, not Paragraphs, for bold styling)
+        table_data.append(headers)
+
+        # Add data rows with Paragraph objects for wrapping
+        for row in data:
+            wrapped_row = []
+            for cell in row:
+                # Convert None to empty string
+                cell_text = str(cell) if cell is not None else ""
+                # Wrap each cell in a Paragraph for automatic text wrapping
+                wrapped_row.append(Paragraph(cell_text, cell_style))
+            table_data.append(wrapped_row)
+
+        # Calculate available width
+        page_width = landscape(A4)[0] - (pdf.leftMargin + pdf.rightMargin)
+        num_columns = len(headers)
+
+        # Dynamic column width calculation
+        # Distribute width evenly, but you can customize per column if needed
+        col_widths = [page_width / num_columns] * num_columns
+
+        # Create table with dynamic column widths
+        table = Table(table_data, colWidths=col_widths, repeatRows=1)
+
+        # Enhanced table styling
         table.setStyle(TableStyle([
+            # Header styling
             ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('FONTSIZE', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 12),
+
+            # Data rows styling
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('ALIGN', (0, 1), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+            ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+
+            # Grid
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
+
+            # Alternating row colors for better readability
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.beige, colors.lightgrey]),
         ]))
+
         elements.append(table)
 
     pdf.build(elements)
-    print(Fore.GREEN + f"\n✅ PDF generated: {filename}\n" + Style.RESET_ALL)
+    print(Fore.LIGHTGREEN_EX + f"\n✅ PDF generated: {filename}\n")
 
     # Auto-open PDF
     try:
+        import platform
+        import os
         if platform.system() == "Windows":
             os.startfile(filename)
         elif platform.system() == "Darwin":
@@ -63,9 +141,7 @@ def generate_pdf_report(title, headers, data, filename_prefix):
         else:
             os.system(f"xdg-open '{filename}'")
     except Exception as e:
-        print(Fore.YELLOW + f"⚠️ Could not open PDF: {e}" + Style.RESET_ALL)
-
-
+        print(f"⚠️ Could not open PDF: {e}")
 
 #  BOOK REPORTS
 def report_all_books():
